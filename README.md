@@ -17,10 +17,12 @@ func main() {
 	router := routes.NewRouter()
 	
 	// add some routes
-	router.Get("/:name[a-zA-z-_](.:format)")
-	router.Get("/carts(.:format)")
-	router.Get("/carts/:cart_id[0-9](.:format)")
-	router.Get("/carts/:cart_id[0-9]/items(.:format)")
+	router.Post("/:name[a-zA-z-_](.:format)")
+	router.Put("/carts(.:format)")
+	router.Delete("/carts/:cart_id[0-9](.:format)")
+	router.Patch("/carts/:cart_id[0-9]/items(.:format)")
+	router.Head("/carts/:cart_id[0-9]/items(.:format)")
+	router.Options("/carts/:cart_id[0-9]/items(.:format)")
 	router.Get("/carts/:cart_id[0-9]/items/:id[0-9](.:format)",
 		func(a, b int) {
 			fmt.Println(a + b)
