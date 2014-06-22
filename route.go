@@ -26,11 +26,11 @@ type Route struct {
 	Method string
 	Path   string
 	Params []*param
-	Stack  []*handler
+	Stack  []*Handler
 	regex  *regexp.Regexp
 }
 
-func NewRoute(method, path string, stack []*handler) *Route {
+func NewRoute(method, path string, stack []*Handler) *Route {
 	this := new(Route)
 	this.Method = method
 	this.Path = path

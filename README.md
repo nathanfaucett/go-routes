@@ -55,6 +55,6 @@ func main() {
 		// values := handler.Call(1, 2)
 	}
 	
-	fmt.Println(out[0].Int(), params)
+	fmt.Println(params)
 }
 ```

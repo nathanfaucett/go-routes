@@ -7,58 +7,61 @@ import (
 	"reflect"
 )
 
-type handler struct {
-	function reflect.Value
-	num_in   int
-	num_out  int
+var (
+	ErrorInvalidArgument = errors.New("Invalid Argument handler is not a Function")
+)
+
+type Handler struct {
+	function  reflect.Value
+	num_in    int
+	num_out   int
+	arguments []reflect.Type
 }
 
-func new_handler(fn interface{}) *handler {
-	defer func() {
-		if r := recover(); nil != r {
-			err := errors.New(fmt.Sprintf("%v", r))
-			debug.Error(err)
-			os.Exit(1)
-		}
-	}()
-	function := reflect.ValueOf(fn)
-	if function.Kind() != reflect.Func {
-		panic("Route's handlers must be funtions")
-	}
-	typeof := function.Type()
+func NewHandler(function interface{}) *Handler {
+	fn := reflect.ValueOf(function)
 
-	this := new(handler)
-	this.function = function
+	if fn.Kind() != reflect.Func {
+		fmt.Println(ErrorInvalidArgument)
+		os.Exit(1)
+	}
+
+	var arguments []reflect.Type
+
+	typeof := fn.Type()
+	length := typeof.NumIn()
+	for i := 0; i < length; i++ {
+		arguments = append(arguments, typeof.In(i))
+	}
+
+	this := new(Handler)
+	this.function = fn
+	this.arguments = arguments
 	this.num_in = typeof.NumIn()
 	this.num_out = typeof.NumOut()
 
 	return this
 }
 
-func (this *handler) NumIn() int {
+func (this *Handler) NumIn() int {
 	return this.num_in
 }
 
-func (this *handler) NumOut() int {
+func (this *Handler) NumOut() int {
 	return this.num_out
 }
 
-// handler.Call(arguments ...interface{}) []reflect.Value,
-//    calls handlers function passing in arguments and returns
-//    functions return values as []reflect.Value
-func (this *handler) Call(arguments ...interface{}) []reflect.Value {
-	defer func() {
-		if r := recover(); nil != r {
-			err := errors.New(fmt.Sprintf("Route handler %v", r))
-			debug.Error(err)
-			os.Exit(1)
-		}
-	}()
+// calls handler's function passing in arguments and returns
+// functions return values as []reflect.Value
+func (this *Handler) Call(arguments ...interface{}) []reflect.Value {
 	var values []reflect.Value
 
-	length := len(arguments)
-	for i := 0; i < length; i++ {
-		values = append(values, reflect.ValueOf(arguments[i]))
+	for i, argument := range arguments {
+		if argument == nil {
+			values = append(values, reflect.Zero(this.arguments[i]))
+		} else {
+			values = append(values, reflect.ValueOf(argument))
+		}
 	}
 
 	return this.function.Call(values)

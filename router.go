@@ -53,9 +53,9 @@ func NewRouter() *Router {
 func (this *Router) mount(method, path string, stack []interface{}) *Route {
 	this.Lock()
 
-	var route_stack []*handler
+	var route_stack []*Handler
 	for _, fn := range stack {
-		route_stack = append(route_stack, new_handler(fn))
+		route_stack = append(route_stack, NewHandler(fn))
 	}
 
 	route := NewRoute(method, path, route_stack)
