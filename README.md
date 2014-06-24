@@ -24,7 +24,7 @@ func main() {
 		},
 	)
 	
-	// attach middleware for only the "/carts/:cart_id[0-9]/items" urls
+	// attach middleware for only the "/carts/:cart_id[0-9]/items" urls and above
 	router.Use(
 		"/carts/:cart_id[0-9]/items",
 		func(a, b int) {
@@ -57,7 +57,7 @@ func main() {
 	stack := router.Find("GET", "/carts/1/items/1.json")
 	
 	// now that we have a stack, loop though stack
-	for _, middleware := range route.Stack {
+	for _, middleware := range stack {
 		params := middleware.Params // map[string][string]
 		handler := middleware.Handler // function to be called
 		
