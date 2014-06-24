@@ -1,117 +1,116 @@
 package routes
 
-import (
-	"regexp"
-)
+import "reflect"
 
 var (
-	parts_matcher = regexp.MustCompile(`\/+\w+|\/\:\w+(\[.+?\])?|\(.+?\)`)
-	part_matcher  = regexp.MustCompile(`(\:?\w+)(\[.+?\])?`)
+	methods = []string{
+		"GET",
+		"POST",
+		"PUT",
+		"PATCH",
+		"HEAD",
+		"OPTIONS",
+		"DELETE",
+	}
 )
 
-type param struct {
-	Name     string
-	Required bool
-}
-
-func new_param(name string, required bool) *param {
-	this := new(param)
-	this.Name = name
-	this.Required = required
-
-	return this
-}
-
 type Route struct {
-	Method string
-	Path   string
-	Params []*param
-	Stack  []*Handler
-	regex  *regexp.Regexp
+	stack   map[string][]*Handler
+	methods map[string]bool
 }
 
-func NewRoute(method, path string, stack []*Handler) *Route {
+func NewRoute() *Route {
 	this := new(Route)
-	this.Method = method
-	this.Path = path
-	this.Stack = stack
-	this.compile_regex()
+	this.stack = make(map[string][]*Handler)
+	this.methods = make(map[string]bool)
 
 	return this
 }
 
-func (this *Route) Match(path string) map[string]string {
-	test := this.regex.FindAllStringSubmatch(path, -1)
-	if len(test) == 0 {
-		return nil
+func (this *Route) Mount(method string, arguments []interface{}) *Route {
+	has := false
+	for _, m := range methods {
+		if method == m {
+			has = true
+		} 
 	}
-	result := test[0]
-	length := len(result)
-	if length == 0 {
-		return nil
+	if !has {
+		panic("Router does not support method "+ method)
 	}
-
-	params := make(map[string]string)
-	if len(this.Params) == 0 {
-		return params
-	}
-
-	for i := range this.Params {
-		if i < length {
-			params[this.Params[i].Name] = result[i+1]
+	
+	for _, handler := range arguments {
+		if !this.methods[method] {
+			this.methods[method] = true
 		}
+		this.stack[method] = append(this.stack[method], NewHandler(handler))
 	}
 
-	return params
+	return this
 }
 
-func (this *Route) compile_regex() {
-	pattern := "^"
-	parts := parts_matcher.FindAllString(this.Path, -1)
+func (this *Route) Unmount(method string, arguments ...interface{}) *Route {
 
-	for i := range parts {
-		part := parts[i]
-		if len(part) <= 0 {
-			continue
-		}
+	for i, handler := range this.stack[method] {
+		for _, function := range arguments {
+			fn := reflect.ValueOf(function)
 
-		if string(part[0]) == "(" {
-			pattern += "(?:\\" + string(part[1])
-			partParts := part_matcher.FindAllStringSubmatch(part, -1)[0]
-			part = partParts[1]
-
-			if string(part[0]) == ":" {
-				regex := partParts[2]
-				if regex == "" {
-					regex = "[a-zA-Z0-9-_]"
-				}
-
-				pattern += "(" + regex + "+?)"
-				this.Params = append(this.Params, new_param(part[1:], false))
-			} else {
-				pattern += part
-			}
-
-			pattern += ")?"
-		} else {
-			pattern += "\\" + string(part[0]) + "+"
-			partParts := part_matcher.FindAllStringSubmatch(part, -1)[0]
-			part = partParts[1]
-
-			if string(part[0]) == ":" {
-				regex := partParts[2]
-				if regex == "" {
-					regex = "[a-zA-Z0-9-_]"
-				}
-
-				pattern += "(" + regex + "+)"
-				this.Params = append(this.Params, new_param(part[1:], true))
-			} else {
-				pattern += part
+			if fn == handler.Func() {
+				this.stack[method] = append(this.stack[method][:i], this.stack[method][i+1:]...)
 			}
 		}
 	}
+	if len(this.stack[method]) == 0 {
+		this.methods[method] = false
+	}
 
-	pattern += "(\\/)?(\\?.+)?$"
-	this.regex = regexp.MustCompile(pattern)
+	return this
+}
+
+func (this *Route) All(arguments ...interface{}) *Route {
+	for _, handler := range arguments {
+		fn := NewHandler(handler)
+
+		this.stack[GET] = append(this.stack[GET], fn)
+		this.stack[POST] = append(this.stack[POST], fn)
+		this.stack[PUT] = append(this.stack[PUT], fn)
+		this.stack[PATCH] = append(this.stack[PATCH], fn)
+		this.stack[HEAD] = append(this.stack[HEAD], fn)
+		this.stack[OPTIONS] = append(this.stack[OPTIONS], fn)
+		this.stack[DELETE] = append(this.stack[DELETE], fn)
+	}
+
+	this.methods[GET] = true
+	this.methods[POST] = true
+	this.methods[PUT] = true
+	this.methods[PATCH] = true
+	this.methods[HEAD] = true
+	this.methods[OPTIONS] = true
+	this.methods[DELETE] = true
+
+	return this
+}
+func (this *Route) Get(arguments ...interface{}) *Route {
+	return this.Mount(GET, arguments)
+}
+func (this *Route) Post(arguments ...interface{}) *Route {
+	return this.Mount(POST, arguments)
+}
+func (this *Route) Put(arguments ...interface{}) *Route {
+	return this.Mount(PUT, arguments)
+}
+func (this *Route) Patch(arguments ...interface{}) *Route {
+	return this.Mount(PATCH, arguments)
+}
+func (this *Route) Update(arguments ...interface{}) *Route {
+	this.Mount(PUT, arguments)
+	return this.Mount(PATCH, arguments)
+}
+func (this *Route) Head(arguments ...interface{}) *Route {
+	return this.Mount(HEAD, arguments)
+}
+func (this *Route) Options(arguments ...interface{}) *Route {
+	return this.Mount(OPTIONS, arguments)
+}
+func (this *Route) Delete(arguments ...interface{}) *Route {
+	return this.Mount(DELETE, arguments)
 }

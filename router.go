@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"errors"
 	"github.com/nathanfaucett/debugger"
 	"github.com/nathanfaucett/events"
 )
@@ -18,16 +17,15 @@ const (
 
 var debug = debugger.Debug("Router")
 
-type cache_route struct {
-	route  *Route
-	params map[string]string
+type Middleware struct {
+	Handler *Handler
+	Params  map[string]string
 }
 
-func new_cache_route(route *Route, params map[string]string) *cache_route {
-	this := new(cache_route)
-
-	this.route = route
-	this.params = params
+func NewMiddleware(handler *Handler, params map[string]string) *Middleware {
+	this := new(Middleware)
+	this.Handler = handler
+	this.Params = params
 
 	return this
 }
@@ -35,8 +33,7 @@ func new_cache_route(route *Route, params map[string]string) *cache_route {
 type Router struct {
 	*events.EventEmitter
 
-	routes     map[string][]*Route
-	routeCache map[string]*cache_route
+	layers []*Layer
 }
 
 // creates new router
@@ -44,100 +41,142 @@ func NewRouter() *Router {
 	this := new(Router)
 	this.EventEmitter = events.NewEventEmitter()
 
-	this.routes = make(map[string][]*Route)
-	this.routeCache = make(map[string]*cache_route)
+	return this
+}
+
+func (this *Router) Use(arguments ...interface{}) *Router {
+	this.Lock()
+	defer this.Unlock()
+	var (
+		path      string
+		layer     *Layer
+		testLayer *Layer
+		ok        bool
+		i         int
+	)
+
+	if path, ok = arguments[0].(string); !ok {
+		path = "/"
+	} else {
+		i = 1
+	}
+	if len(path) == 0 {
+		path = "/"
+	}
+	if string(path[0]) != "/" {
+		path = "/" + path
+	}
+	if size := len(path); size > 1 && string(path[size-1]) == "/" {
+		path = path[:size-1]
+	}
+
+	for _, testLayer = range this.layers {
+		if testLayer.path == path && testLayer.route == nil {
+			layer = testLayer
+			break
+		}
+	}
+	if layer == nil {
+		layer = NewLayer(path, false, false)
+		this.layers = append(this.layers, layer)
+	}
+
+	length := len(arguments)
+	for ; i < length; i++ {
+		layer.stack = append(layer.stack, NewHandler(arguments[i]))
+	}
 
 	return this
 }
 
-func (this *Router) mount(method, path string, stack []interface{}) *Route {
+func (this *Router) Route(path string) *Route {
 	this.Lock()
+	var (
+		route *Route
+		layer *Layer
+	)
 
-	var route_stack []*Handler
-	for _, fn := range stack {
-		route_stack = append(route_stack, NewHandler(fn))
+	for _, layer = range this.layers {
+		if layer.path == path && layer.route != nil {
+			route = layer.route
+		}
+	}
+	if route == nil {
+		layer = NewLayer(path, false, true)
+		route = NewRoute()
+		layer.route = route
+		this.layers = append(this.layers, layer)
 	}
 
-	route := NewRoute(method, path, route_stack)
-	this.routes[method] = append(this.routes[method], route)
 	this.Unlock()
-
 	this.Emit("mount", route)
+
 	return route
 }
 
-func (this *Router) Unmount(method, path string) *Route {
-	this.Lock()
-
-	for i, route := range this.routes[method] {
-		if route.Path == path {
-			this.routes[method] = append(this.routes[method][:i], this.routes[method][i+1:]...)
-			this.Unlock()
-
-			this.Emit("unmount", route)
-			return route
-		}
-	}
-
-	return nil
+func (this *Router) Mount(method, path string, arguments ...interface{}) *Route {
+	return this.Route(path).Mount(method, arguments)
+}
+func (this *Router) Unmount(method, path string, arguments ...interface{}) *Route {
+	return this.Route(path).Unmount(method, arguments...)
+}
+func (this *Router) All(path string, arguments ...interface{}) *Route {
+	return this.Route(path).All(arguments...)
+}
+func (this *Router) Get(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Get(arguments...)
+}
+func (this *Router) Post(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Post(arguments...)
+}
+func (this *Router) Put(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Put(arguments...)
+}
+func (this *Router) Patch(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Patch(arguments...)
+}
+func (this *Router) Update(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Update(arguments...)
+}
+func (this *Router) Head(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Head(arguments...)
+}
+func (this *Router) Options(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Options(arguments...)
+}
+func (this *Router) Delete(path string, arguments ...interface{}) *Route {
+	return this.Route(path).Delete(arguments...)
 }
 
-func (this *Router) Get(path string, stack ...interface{}) *Route {
-	return this.mount(GET, path, stack)
-}
-
-func (this *Router) Post(path string, stack ...interface{}) *Route {
-	return this.mount(POST, path, stack)
-}
-
-func (this *Router) Put(path string, stack ...interface{}) *Route {
-	return this.mount(PUT, path, stack)
-}
-
-func (this *Router) Patch(path string, stack ...interface{}) *Route {
-	return this.mount(PATCH, path, stack)
-}
-
-func (this *Router) Update(path string, stack ...interface{}) *Route {
-	this.mount(PUT, path, stack)
-	return this.mount(PATCH, path, stack)
-}
-
-func (this *Router) Head(path string, stack ...interface{}) *Route {
-	return this.mount(HEAD, path, stack)
-}
-
-func (this *Router) Options(path string, stack ...interface{}) *Route {
-	return this.mount(OPTIONS, path, stack)
-}
-
-func (this *Router) Delete(path string, stack ...interface{}) *Route {
-	return this.mount(DELETE, path, stack)
-}
-
-// finds route that matches path, if none found returns error
-func (this *Router) Find(method, path string) (error, *Route, map[string]string) {
+// finds handlers that matches path and method
+func (this *Router) Find(method, path string) []*Middleware {
 	this.Lock()
 	defer this.Unlock()
+	var stack []*Middleware
 
-	cacheKey := method + path
-	cacheRoute := this.routeCache[cacheKey]
+	for _, layer := range this.layers {
+		pass, params := layer.Match(path)
 
-	if cacheRoute != nil {
-		debug.Log("Found Cached Route " + cacheKey)
-		return nil, cacheRoute.route, cacheRoute.params
-	}
+		if pass {
+			if route := layer.route; route != nil {
+				tmp := method
+				if method == "HEAD" && !route.methods["HEAD"] {
+					tmp = "GET"
+				}
 
-	for _, route := range this.routes[method] {
-		params := route.Match(path)
-
-		if params != nil {
-			debug.Log("Found New Route " + cacheKey)
-			this.routeCache[cacheKey] = new_cache_route(route, params)
-
-			return nil, route, params
+				if !route.methods[tmp] {
+					continue
+				}
+				for _, handler := range route.stack[tmp] {
+					stack = append(stack, NewMiddleware(handler, params))
+				}
+			} else if layer.stack != nil {
+				for _, handler := range layer.stack {
+					stack = append(stack, NewMiddleware(handler, params))
+				}
+			}
 		}
 	}
 
-	return errors.New("No Route Matches " + path), nil, nil
+	return stack
 }

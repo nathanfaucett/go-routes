@@ -2,8 +2,6 @@ package routes
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"reflect"
 )
 
@@ -22,8 +20,7 @@ func NewHandler(function interface{}) *Handler {
 	fn := reflect.ValueOf(function)
 
 	if fn.Kind() != reflect.Func {
-		fmt.Println(ErrorInvalidArgument)
-		os.Exit(1)
+		panic(ErrorInvalidArgument)
 	}
 
 	var arguments []reflect.Type
@@ -41,6 +38,10 @@ func NewHandler(function interface{}) *Handler {
 	this.num_out = typeof.NumOut()
 
 	return this
+}
+
+func (this *Handler) Func() reflect.Value {
+	return this.function
 }
 
 func (this *Handler) NumIn() int {
