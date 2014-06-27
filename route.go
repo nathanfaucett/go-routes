@@ -1,6 +1,10 @@
 package routes
 
-import "reflect"
+import (
+	"github.com/nathanfaucett/ptor"
+	"reflect"
+	"regexp"
+)
 
 var (
 	methods = []string{
@@ -15,16 +19,48 @@ var (
 )
 
 type Route struct {
+	path    string
+	regex   *regexp.Regexp
+	params  []*ptor.Param
 	stack   map[string][]*Handler
 	methods map[string]bool
 }
 
-func NewRoute() *Route {
+func NewRoute(path string, sensitive bool) *Route {
 	this := new(Route)
+
+	this.path = path
+	this.regex, this.params = ptor.PathToRegexp(path, sensitive, true)
+
 	this.stack = make(map[string][]*Handler)
 	this.methods = make(map[string]bool)
 
 	return this
+}
+
+func (this *Route) Match(path string) map[string]string {
+	test := this.regex.FindAllStringSubmatch(path, -1)
+	if len(test) == 0 {
+		return nil
+	}
+	result := test[0]
+	length := len(result)
+	if length == 0 {
+		return nil
+	}
+
+	params := make(map[string]string)
+	if len(this.params) == 0 {
+		return params
+	}
+
+	for i := range this.params {
+		if i < length {
+			params[this.params[i].Name] = result[i+1]
+		}
+	}
+
+	return params
 }
 
 func (this *Route) Mount(method string, arguments []interface{}) *Route {
@@ -32,12 +68,12 @@ func (this *Route) Mount(method string, arguments []interface{}) *Route {
 	for _, m := range methods {
 		if method == m {
 			has = true
-		} 
+		}
 	}
 	if !has {
-		panic("Router does not support method "+ method)
+		panic("Router does not support method " + method)
 	}
-	
+
 	for _, handler := range arguments {
 		if !this.methods[method] {
 			this.methods[method] = true
@@ -49,6 +85,15 @@ func (this *Route) Mount(method string, arguments []interface{}) *Route {
 }
 
 func (this *Route) Unmount(method string, arguments ...interface{}) *Route {
+	has := false
+	for _, m := range methods {
+		if method == m {
+			has = true
+		}
+	}
+	if !has {
+		panic("Router does not support method " + method)
+	}
 
 	for i, handler := range this.stack[method] {
 		for _, function := range arguments {

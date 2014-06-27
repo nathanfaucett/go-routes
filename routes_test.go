@@ -16,11 +16,11 @@ func action(req, res map[string]string) {
 
 func build_resources(router *Router, path string) {
 	router.Use(path, action_middleware, action_middleware, action_middleware, action_middleware, action_middleware, action_middleware)
-	router.Get(path, action)
-	router.Get(path+"/:id[0-9]", action)
-	router.Post(path, action)
-	router.Post(path+"/:id[0-9]", action)
-	router.Delete(path+"/:id[0-9]", action)
+	router.Get(path, action, action, action)
+	router.Get(path+"/:id[0-9]", action, action, action)
+	router.Post(path, action, action, action)
+	router.Post(path+"/:id[0-9]", action, action, action)
+	router.Delete(path+"/:id[0-9]", action, action, action)
 }
 
 func new_test_router() *Router {
@@ -39,16 +39,16 @@ func BenchmarkRouter(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		var (
-			stack []*Middleware
+			stack []*Handler
 			req   map[string]string
 			res   map[string]string
 		)
 
-		stack = router.Find("HEAD", "/admin")
+		stack, _, _ = router.Find("HEAD", "/admin")
 		req = make(map[string]string)
 		res = make(map[string]string)
-		for _, middleware := range stack {
-			middleware.Handler.Call(req, res)
+		for _, handler := range stack {
+			handler.Call(req, res)
 		}
 	}
 }

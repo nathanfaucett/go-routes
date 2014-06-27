@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	"github.com/nathanfaucett/debugger"
 	"github.com/nathanfaucett/events"
 )
@@ -17,23 +18,11 @@ const (
 
 var debug = debugger.Debug("Router")
 
-type Middleware struct {
-	Handler *Handler
-	Params  map[string]string
-}
-
-func NewMiddleware(handler *Handler, params map[string]string) *Middleware {
-	this := new(Middleware)
-	this.Handler = handler
-	this.Params = params
-
-	return this
-}
-
 type Router struct {
 	*events.EventEmitter
 
-	layers []*Layer
+	middleware []*Middleware
+	routes     []*Route
 }
 
 // creates new router
@@ -48,15 +37,16 @@ func (this *Router) Use(arguments ...interface{}) *Router {
 	this.Lock()
 	defer this.Unlock()
 	var (
-		path      string
-		layer     *Layer
-		testLayer *Layer
-		ok        bool
-		i         int
+		path            string
+		middleware      *Middleware
+		test_middleware *Middleware
+		ok              bool
+		i               int
 	)
 
 	if path, ok = arguments[0].(string); !ok {
 		path = "/"
+		i = 0
 	} else {
 		i = 1
 	}
@@ -70,20 +60,20 @@ func (this *Router) Use(arguments ...interface{}) *Router {
 		path = path[:size-1]
 	}
 
-	for _, testLayer = range this.layers {
-		if testLayer.path == path && testLayer.route == nil {
-			layer = testLayer
+	for _, test_middleware = range this.middleware {
+		if test_middleware.path == path {
+			middleware = test_middleware
 			break
 		}
 	}
-	if layer == nil {
-		layer = NewLayer(path, false, false)
-		this.layers = append(this.layers, layer)
+	if middleware == nil {
+		middleware = NewMiddleware(path, false)
+		this.middleware = append(this.middleware, middleware)
 	}
 
 	length := len(arguments)
 	for ; i < length; i++ {
-		layer.stack = append(layer.stack, NewHandler(arguments[i]))
+		middleware.stack = append(middleware.stack, NewHandler(arguments[i]))
 	}
 
 	return this
@@ -92,20 +82,29 @@ func (this *Router) Use(arguments ...interface{}) *Router {
 func (this *Router) Route(path string) *Route {
 	this.Lock()
 	var (
-		route *Route
-		layer *Layer
+		test_route *Route
+		route      *Route
 	)
 
-	for _, layer = range this.layers {
-		if layer.path == path && layer.route != nil {
-			route = layer.route
+	if len(path) == 0 {
+		path = "/"
+	}
+	if string(path[0]) != "/" {
+		path = "/" + path
+	}
+	if size := len(path); size > 1 && string(path[size-1]) == "/" {
+		path = path[:size-1]
+	}
+
+	for _, test_route = range this.routes {
+		if test_route.path == path {
+			route = test_route
+			break
 		}
 	}
 	if route == nil {
-		layer = NewLayer(path, false, true)
-		route = NewRoute()
-		layer.route = route
-		this.layers = append(this.layers, layer)
+		route = NewRoute(path, false)
+		this.routes = append(this.routes, route)
 	}
 
 	this.Unlock()
@@ -149,34 +148,32 @@ func (this *Router) Delete(path string, arguments ...interface{}) *Route {
 }
 
 // finds handlers that matches path and method
-func (this *Router) Find(method, path string) []*Middleware {
+func (this *Router) Find(method, path string) ([]*Handler, map[string]string, error) {
 	this.Lock()
 	defer this.Unlock()
-	var stack []*Middleware
 
-	for _, layer := range this.layers {
-		pass, params := layer.Match(path)
+	for _, route := range this.routes {
+		if !route.methods[method] {
+			continue
+		}
+		params := route.Match(path)
 
-		if pass {
-			if route := layer.route; route != nil {
-				tmp := method
-				if method == "HEAD" && !route.methods["HEAD"] {
-					tmp = "GET"
-				}
+		if params != nil {
+			debug.Log("Routing " + method + path)
+			var stack []*Handler
 
-				if !route.methods[tmp] {
-					continue
-				}
-				for _, handler := range route.stack[tmp] {
-					stack = append(stack, NewMiddleware(handler, params))
-				}
-			} else if layer.stack != nil {
-				for _, handler := range layer.stack {
-					stack = append(stack, NewMiddleware(handler, params))
+			for _, middleware := range this.middleware {
+				pass := middleware.Match(path)
+
+				if pass {
+					stack = append(stack, middleware.stack...)
 				}
 			}
+			stack = append(stack, route.stack[method]...)
+
+			return stack, params, nil
 		}
 	}
 
-	return stack
+	return nil, nil, errors.New("No Route matches " + path + " " + method)
 }
